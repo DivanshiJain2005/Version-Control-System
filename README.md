@@ -11,6 +11,11 @@ This is a tiny, local-only version control system inspired by Git. It supports:
 - `checkout -b <branch>`
 - `branch [name]`
 - `diff [--staged]`
+- `rm <path>`
+- `mv <src> <dst>`
+- `reset <commit>`
+- `reset --hard <commit>`
+- `revert <commit>`
 
 ## Quick Start
 

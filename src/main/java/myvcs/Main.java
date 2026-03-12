@@ -52,6 +52,31 @@ public class Main {
                     repo.diff(false);
                 }
                 break;
+            case "rm":
+                requireArgs(args, 2);
+                repo.rm(args[1]);
+                break;
+            case "mv":
+                requireArgs(args, 3);
+                repo.mv(args[1], args[2]);
+                break;
+            case "reset":
+                if (args.length >= 2 && "--hard".equals(args[1])) {
+                    if (args.length < 3) {
+                        throw new IllegalArgumentException("Usage: reset --hard <commit>");
+                    }
+                    repo.resetHard(args[2]);
+                } else {
+                    if (args.length < 2) {
+                        throw new IllegalArgumentException("Usage: reset <commit>");
+                    }
+                    repo.resetMixed(args[1]);
+                }
+                break;
+            case "revert":
+                requireArgs(args, 2);
+                repo.revert(args[1]);
+                break;
             default:
                 printHelp();
                 break;
@@ -69,6 +94,11 @@ public class Main {
         System.out.println("  checkout -b <branch>");
         System.out.println("  branch [name]");
         System.out.println("  diff [--staged]");
+        System.out.println("  rm <path>");
+        System.out.println("  mv <src> <dst>");
+        System.out.println("  reset <commit>");
+        System.out.println("  reset --hard <commit>");
+        System.out.println("  revert <commit>");
     }
 
     private static void requireArgs(String[] args, int count) {

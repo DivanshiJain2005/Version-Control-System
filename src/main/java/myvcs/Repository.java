@@ -322,6 +322,156 @@ public class Repository {
         }
     }
 
+    public void rm(String path) throws IOException {
+        ensureRepo();
+        Path filePath = root.resolve(path).normalize();
+        if (!Files.exists(filePath)) {
+            System.out.println("Path does not exist: " + path);
+            return;
+        }
+        if (Files.isDirectory(filePath)) {
+            System.out.println("rm only supports files in this version");
+            return;
+        }
+        Files.delete(filePath);
+        Map<String, String> entries = index.read();
+        String rel = root.relativize(filePath).toString().replace("\\", "/");
+        entries.remove(rel);
+        index.write(entries);
+        System.out.println("Removed " + rel);
+    }
+
+    public void mv(String src, String dst) throws IOException {
+        ensureRepo();
+        Path srcPath = root.resolve(src).normalize();
+        Path dstPath = root.resolve(dst).normalize();
+        if (!Files.exists(srcPath)) {
+            System.out.println("Source does not exist: " + src);
+            return;
+        }
+        if (Files.isDirectory(srcPath)) {
+            System.out.println("mv only supports files in this version");
+            return;
+        }
+        Files.createDirectories(dstPath.getParent());
+        Files.move(srcPath, dstPath);
+
+        Map<String, String> entries = index.read();
+        String srcRel = root.relativize(srcPath).toString().replace("\\", "/");
+        String dstRel = root.relativize(dstPath).toString().replace("\\", "/");
+        String hash = entries.remove(srcRel);
+        if (hash == null) {
+            hash = objectStore.hashObject("blob", Files.readAllBytes(dstPath));
+        }
+        entries.put(dstRel, hash);
+        index.write(entries);
+        System.out.println("Moved " + srcRel + " -> " + dstRel);
+    }
+
+    public void resetMixed(String commit) throws IOException {
+        ensureRepo();
+        String commitHash = resolveCommit(commit);
+        if (commitHash == null || commitHash.isBlank()) {
+            System.out.println("Unknown branch or commit: " + commit);
+            return;
+        }
+        Map<String, String> tree = readCommitTree(commitHash);
+        index.write(tree);
+        updateHeadCommit(commitHash);
+        System.out.println("Reset (mixed) to " + commitHash);
+    }
+
+    public void resetHard(String commit) throws IOException {
+        ensureRepo();
+        if (!isWorkingTreeClean()) {
+            System.out.println("Cannot reset --hard: working tree has uncommitted changes");
+            return;
+        }
+        String commitHash = resolveCommit(commit);
+        if (commitHash == null || commitHash.isBlank()) {
+            System.out.println("Unknown branch or commit: " + commit);
+            return;
+        }
+        Map<String, String> tree = readCommitTree(commitHash);
+
+        Map<String, String> currentTree = readHeadTree();
+        for (String path : currentTree.keySet()) {
+            if (!tree.containsKey(path)) {
+                Path filePath = root.resolve(path);
+                if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+                    Files.delete(filePath);
+                }
+            }
+        }
+        for (Map.Entry<String, String> entry : tree.entrySet()) {
+            String rel = entry.getKey();
+            ObjectStore.ObjectData blob = objectStore.readObject(entry.getValue());
+            Path filePath = root.resolve(rel);
+            Files.createDirectories(filePath.getParent());
+            Files.write(filePath, blob.body());
+        }
+
+        index.write(tree);
+        updateHeadCommit(commitHash);
+        System.out.println("Reset (hard) to " + commitHash);
+    }
+
+    public void revert(String commit) throws IOException {
+        ensureRepo();
+        if (!isWorkingTreeClean()) {
+            System.out.println("Cannot revert: working tree has uncommitted changes");
+            return;
+        }
+        String commitHash = resolveCommit(commit);
+        if (commitHash == null || commitHash.isBlank()) {
+            System.out.println("Unknown branch or commit: " + commit);
+            return;
+        }
+        ObjectStore.ObjectData commitObj = objectStore.readObject(commitHash);
+        String body = new String(commitObj.body(), StandardCharsets.UTF_8);
+        String parentHash = findLine(body, "parent");
+        if (parentHash == null || parentHash.isBlank()) {
+            System.out.println("Cannot revert root commit");
+            return;
+        }
+
+        Map<String, String> commitTree = readCommitTree(commitHash);
+        Map<String, String> parentTree = readCommitTree(parentHash);
+
+        Map<String, String> resultTree = new HashMap<>();
+        for (String path : parentTree.keySet()) {
+            resultTree.put(path, parentTree.get(path));
+        }
+
+        Map<String, String> headTree = readHeadTree();
+        for (Map.Entry<String, String> entry : headTree.entrySet()) {
+            if (!commitTree.containsKey(entry.getKey())) {
+                resultTree.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        Map<String, String> currentTree = readHeadTree();
+        for (String path : currentTree.keySet()) {
+            if (!resultTree.containsKey(path)) {
+                Path filePath = root.resolve(path);
+                if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+                    Files.delete(filePath);
+                }
+            }
+        }
+        for (Map.Entry<String, String> entry : resultTree.entrySet()) {
+            String rel = entry.getKey();
+            ObjectStore.ObjectData blob = objectStore.readObject(entry.getValue());
+            Path filePath = root.resolve(rel);
+            Files.createDirectories(filePath.getParent());
+            Files.write(filePath, blob.body());
+        }
+
+        index.write(resultTree);
+        commit("revert " + commitHash);
+        System.out.println("Reverted " + commitHash);
+    }
+
     private static Path repoRoot() {
         return Paths.get("").toAbsolutePath();
     }
