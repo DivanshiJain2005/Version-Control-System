@@ -59,5 +59,3 @@ Each object is stored as:
 ```
 
 The SHA-256 hash of the header + body is the object id.
-
-hello
